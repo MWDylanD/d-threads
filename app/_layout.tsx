@@ -1,39 +1,60 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { StatusBar } from 'expo-status-bar';
+import { Slot, SplashScreen, useRouter, useSegments } from 'expo-router';
+import { ClerkProvider, ClerkLoaded, useAuth } from '@clerk/clerk-expo';
+import { tokenCache } from '@/utils/cache';
+import { useFonts, DMSans_400Regular, DMSans_500Medium, DMSans_700Bold } from '@expo-google-fonts/dm-sans';
 import { useEffect } from 'react';
-import 'react-native-reanimated';
+import { ConvexReactClient, ConvexProviderWithAuth } from 'convex/react';
 
-import { useColorScheme } from '@/hooks/useColorScheme';
+const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!, {
+	unsavedChangesWarning: false,
+});
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
+const clerkPublishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+if (!clerkPublishableKey) {
+	throw new Error('Missing EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY');
+}
+
+// this line prevent the splash screen from hiding until the fonts are loaded
 SplashScreen.preventAutoHideAsync();
 
-export default function RootLayout() {
-  const colorScheme = useColorScheme();
-  const [loaded] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
-  });
+const InitialLayout = () => {
+	const router = useRouter();
+	const [fontsLoaded] = useFonts({
+		DMSans_400Regular,
+		DMSans_500Medium,
+		DMSans_700Bold,
+	});
+	const { isLoaded, isSignedIn } = useAuth();
+	const segments = useSegments();
 
-  useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
-    }
-  }, [loaded]);
+	useEffect(() => {
+		if (fontsLoaded) {
+			SplashScreen.hideAsync();
+		}
+	}, [fontsLoaded]);
 
-  if (!loaded) {
-    return null;
-  }
+	useEffect(() => {
+		const inAuthGroup = segments[0] === '(auth)';
+		if (isSignedIn && !inAuthGroup) {
+			router.replace('/(auth)/(tabs)/feed');
+		} else if (!isSignedIn && inAuthGroup) {
+			router.replace('/(public)');
+		}
+	}, [isSignedIn]);
 
-  return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="+not-found" />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
-  );
-}
+	return <Slot />;
+};
+
+const RootLayoutNav = () => {
+	return (
+		<ClerkProvider publishableKey={clerkPublishableKey!} tokenCache={tokenCache}>
+			<ClerkLoaded>
+				<ConvexProviderWithAuth client={convex} useAuth={useAuth}>
+					<InitialLayout />
+				</ConvexProviderWithAuth>
+			</ClerkLoaded>
+		</ClerkProvider>
+	);
+};
+
+export default RootLayoutNav;
